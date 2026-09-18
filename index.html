@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard — Attendance Management System{% endblock %}
+{% block content %}
+
+<section class="ledger-row">
+    <div class="figure-card">
+        <span class="figure-num">{{ total_students }}</span>
+        <span class="figure-label">Total Students</span>
+    </div>
+    <div class="figure-card">
+        <span class="figure-num">{{ total_classes }}</span>
+        <span class="figure-label">Total Classes</span>
+    </div>
+    <div class="figure-card figure-present">
+        <span class="figure-num">{{ today_present }}</span>
+        <span class="figure-label">Present Today</span>
+    </div>
+    <div class="figure-card figure-absent">
+        <span class="figure-num">{{ today_absent }}</span>
+        <span class="figure-label">Absent Today</span>
+    </div>
+    <div class="figure-card figure-late">
+        <span class="figure-num">{{ today_late }}</span>
+        <span class="figure-label">Late Today</span>
+    </div>
+</section>
+
+<section class="panel">
+    <h2 class="panel-title">Quick Actions</h2>
+    <div class="action-row">
+        <a href="{{ url_for('add_student') }}" class="btn btn-ink">+ Add Student</a>
+        <a href="{{ url_for('upload_excel') }}" class="btn btn-line">Import from Excel</a>
+        <a href="{{ url_for('attendance_page') }}" class="btn btn-line">Take Today's Attendance</a>
+        <a href="{{ url_for('reports') }}" class="btn btn-line">View Reports</a>
+    </div>
+</section>
+
+<section class="panel">
+    <h2 class="panel-title">Recent Entries</h2>
+    {% if recent %}
+    <table class="ledger-table">
+        <thead><tr><th>Date</th><th>Roll</th><th>Name</th><th>Class</th><th>Status</th></tr></thead>
+        <tbody>
+        {% for r in recent %}
+            <tr>
+                <td>{{ r.date }}</td>
+                <td>{{ r.roll }}</td>
+                <td>{{ r.name }}</td>
+                <td>{{ r.class }}</td>
+                <td><span class="stamp stamp-{{ r.status|lower }}">{{ r.status }}</span></td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="blank-note">No attendance recorded yet. Head to the <a href="{{ url_for('attendance_page') }}">Take Attendance</a> page to get started.</p>
+    {% endif %}
+</section>
+
+{% endblock %}
