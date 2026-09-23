@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block title %}Students — Attendance Management System{% endblock %}
+{% block content %}
+
+<div class="panel-header">
+    <h2 class="panel-title">Student List</h2>
+    <a href="{{ url_for('add_student') }}" class="btn btn-ink">+ New Student</a>
+</div>
+
+<section class="panel">
+    <form method="get" class="filter-row">
+        <input type="text" name="search" placeholder="Search by name or roll" value="{{ search }}">
+        <select name="dept">
+            <option value="">All Depts</option>
+            {% for d in depts %}
+            <option value="{{ d.dept }}" {{ 'selected' if d.dept==dept_filter }}>{{ d.dept }}</option>
+            {% endfor %}
+        </select>
+        <select name="batch">
+            <option value="">All Batches</option>
+            {% for b in batches %}
+            <option value="{{ b.batch }}" {{ 'selected' if b.batch==batch_filter }}>{{ b.batch }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-line">Search</button>
+        {% if dept_filter or batch_filter or search %}
+        <a href="{{ url_for('students') }}" class="btn btn-ghost">Reset</a>
+        {% endif %}
+    </form>
+</section>
+
+<section class="panel">
+    {% if students %}
+    <table class="ledger-table">
+        <thead><tr><th>Roll</th><th>Name</th><th>Dept</th><th>Batch</th><th>Phone</th><th></th></tr></thead>
+        <tbody>
+        {% for s in students %}
+        <tr>
+            <td>{{ s.roll }}</td>
+            <td>{{ s.name }}</td>
+            <td>{{ s.dept }}</td>
+            <td>{{ s.batch }}</td>
+            <td>{{ s.phone or '—' }}</td>
+            <td class="row-actions">
+                <a href="{{ url_for('edit_student', student_id=s.id) }}" title="Edit">Edit</a>
+                <form method="post" action="{{ url_for('delete_student', student_id=s.id) }}"
+                      onsubmit="return confirm('Are you sure you want to delete this student?');" class="inline-form">
+                    <button type="submit" class="link-danger">Delete</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="blank-note">No students found. <a href="{{ url_for('add_student') }}">Add a new student</a> or <a href="{{ url_for('upload_excel') }}">import from Excel</a>.</p>
+    {% endif %}
+</section>
+
+{% endblock %}

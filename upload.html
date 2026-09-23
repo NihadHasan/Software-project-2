@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block title %}Excel Import — Attendance Management System{% endblock %}
+{% block content %}
+
+<h2 class="panel-title">Import Students from Excel</h2>
+
+<section class="panel">
+    <h3 class="sub-title">Instructions</h3>
+    <ul class="note-list">
+        <li>The Excel file (.xlsx / .xls) must include these columns — <strong>Name, Roll, Dept, Batch</strong></li>
+        <li>Optional column — <strong>Phone</strong></li>
+        <li>The first row must contain the column headers</li>
+        <li>Rows with a duplicate Roll number will be skipped</li>
+    </ul>
+    <a href="{{ url_for('sample_excel') }}" class="btn btn-line">Download Sample Excel</a>
+</section>
+
+<section class="panel form-panel">
+    <form method="post" enctype="multipart/form-data">
+        <div class="field">
+            <label>Select Excel File <span class="req">*</span></label>
+            <input type="file" name="file" accept=".xlsx,.xls" required>
+        </div>
+        <div class="field-actions">
+            <button type="submit" class="btn btn-ink">Import</button>
+        </div>
+    </form>
+</section>
+
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block title %}Reports — Attendance Management System{% endblock %}
+{% block content %}
+
+<h2 class="panel-title">Attendance Report</h2>
+
+<section class="panel">
+    <form method="get" class="filter-row">
+        <select name="dept" required>
+            <option value="">Select Dept</option>
+            {% for d in depts %}
+            <option value="{{ d.dept }}" {{ 'selected' if d.dept==dept_filter }}>{{ d.dept }}</option>
+            {% endfor %}
+        </select>
+        <select name="batch" required>
+            <option value="">Select Batch</option>
+            {% for b in batches %}
+            <option value="{{ b.batch }}" {{ 'selected' if b.batch==batch_filter }}>{{ b.batch }}</option>
+            {% endfor %}
+        </select>
+        <input type="date" name="from_date" value="{{ from_date }}" required>
+        <span class="filter-sep">to</span>
+        <input type="date" name="to_date" value="{{ to_date }}" required>
+        <button type="submit" class="btn btn-line">Generate</button>
+        {% if dept_filter and batch_filter and from_date and to_date %}
+        <a href="{{ url_for('export_report', **{'dept': dept_filter, 'batch': batch_filter, 'from_date': from_date, 'to_date': to_date}) }}" class="btn btn-ink">Download Excel</a>
+        {% endif %}
+    </form>
+</section>
+
+{% if summary %}
+<section class="panel">
+    <h3 class="sub-title">Summary — {{ dept_filter }} &middot; Batch {{ batch_filter }} ({{ from_date }} to {{ to_date }})</h3>
+    <table class="ledger-table">
+        <thead><tr><th>Roll</th><th>Name</th><th>Present</th><th>Absent</th><th>Late</th><th>Total Days</th><th>Attendance Rate</th></tr></thead>
+        <tbody>
+        {% for r in summary %}
+        <tr>
+            <td>{{ r.roll }}</td>
+            <td>{{ r.name }}</td>
+            <td>{{ r.present }}</td>
+            <td>{{ r.absent }}</td>
+            <td>{{ r.late }}</td>
+            <td>{{ r.total }}</td>
+            <td class="pct-cell">
+                <div class="pct-track"><div class="pct-fill" style="width: {{ r.percentage }}%"></div></div>
+                <span class="pct-text">{{ r.percentage }}%</span>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% elif dept_filter and batch_filter %}
+<p class="blank-note">No attendance data found for this period.</p>
+{% endif %}
+
+{% endblock %}
