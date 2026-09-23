@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}Edit Student — Attendance Management System{% endblock %}
+{% block content %}
+
+<h2 class="panel-title">Edit Student</h2>
+
+<section class="panel form-panel">
+    <form method="post">
+        <div class="field">
+            <label>Name <span class="req">*</span></label>
+            <input type="text" name="name" value="{{ student.name }}" required>
+        </div>
+        <div class="field">
+            <label>Roll Number <span class="req">*</span></label>
+            <input type="text" name="roll" value="{{ student.roll }}" required>
+        </div>
+        <div class="field">
+            <label>Dept <span class="req">*</span></label>
+            <input type="text" name="dept" value="{{ student.dept }}" required>
+        </div>
+        <div class="field">
+            <label>Batch <span class="req">*</span></label>
+            <input type="text" name="batch" value="{{ student.batch }}" required>
+        </div>
+        <div class="field">
+            <label>Phone</label>
+            <input type="text" name="phone" value="{{ student.phone or '' }}">
+        </div>
+        <div class="field-actions">
+            <button type="submit" class="btn btn-ink">Update</button>
+            <a href="{{ url_for('students') }}" class="btn btn-ghost">Cancel</a>
+        </div>
+    </form>
+</section>
+
+{% endblock %}
