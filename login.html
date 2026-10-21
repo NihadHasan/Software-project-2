@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}Log in — Attendance Management System{% endblock %}
+{% block content %}
+<h2 class="panel-title">Log in</h2>
+<section class="panel form-panel">
+    <form method="post">
+        {{ csrf_input() }}
+        <input type="hidden" name="next" value="{{ next }}">
+        <div class="field">
+            <label for="username">Name</label>
+            <input id="username" type="text" name="username" value="{{ username }}" autocomplete="username" required autofocus>
+        </div>
+        <div class="field">
+            <label for="password">Password</label>
+            <input id="password" type="password" name="password" autocomplete="current-password" required>
+        </div>
+        <div class="field-actions">
+            <button type="submit" class="btn btn-ink">Log in</button>
+        </div>
+    </form>
+</section>
+{% endblock %}
