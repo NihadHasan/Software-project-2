@@ -6,6 +6,7 @@
 
 <section class="panel form-panel">
     <form method="post">
+    {{ csrf_input() }}
         <div class="field">
             <label>Name <span class="req">*</span></label>
             <input type="text" name="name" required autofocus>
