@@ -16,13 +16,18 @@ Then open http://127.0.0.1:5000 in your browser.
 
 import os
 import io
+import time
+import secrets
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
+from functools import wraps
 
 import pandas as pd
 from flask import (
-    Flask, render_template, request, redirect, url_for, flash, send_file
+    Flask, render_template, request, redirect, url_for, flash, send_file,
+    session, abort
 )
+from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -32,9 +37,34 @@ ALLOWED_EXTENSIONS = {"xlsx", "xls"}
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+
+
+def load_secret_key():
+    """Use SECRET_KEY env var, otherwise generate one once and keep it in secret.key."""
+    env_key = os.environ.get("SECRET_KEY")
+    if env_key:
+        return env_key
+    key_path = os.path.join(BASE_DIR, "secret.key")
+    if os.path.exists(key_path):
+        with open(key_path) as f:
+            return f.read().strip()
+    key = secrets.token_hex(32)
+    with open(key_path, "w") as f:
+        f.write(key)
+    return key
+
+
 app = Flask(__name__)
-app.secret_key = "attendance-management-secret-key-2026"
+app.secret_key = load_secret_key()
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
+
+# ---- Login details: change these (or set ADMIN_USERNAME / ADMIN_PASSWORD env vars) ----
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+MIN_PASSWORD_LEN = 6
 
 
 # --------------------------------------------------------------------------
@@ -72,6 +102,14 @@ def init_db():
             FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
             UNIQUE(student_id, date)
         );
+
+        CREATE TABLE IF NOT EXISTS teachers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
         """
     )
     conn.commit()
@@ -80,6 +118,210 @@ def init_db():
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+# --------------------------------------------------------------------------
+# Login: one admin (set in this file) + teachers added by the admin
+# --------------------------------------------------------------------------
+PUBLIC_ENDPOINTS = {"login", "static"}
+# Pages a logged-in teacher may use (everything else is admin-only).
+TEACHER_ENDPOINTS = {"attendance_page", "save_attendance", "reports", "export_report", "logout"}
+
+# Brute-force protection: ip -> (fail_count, locked_until)
+MAX_FAILS = 5
+LOCK_SECONDS = 300
+_login_fails = {}
+
+
+def norm_name(value):
+    """Teacher login key: trimmed, single-spaced, case-insensitive."""
+    return " ".join(value.split()).lower()
+
+
+def is_admin():
+    return session.get("role") == "admin"
+
+
+def home_url():
+    return url_for("dashboard") if is_admin() else url_for("attendance_page")
+
+
+def safe_next(target):
+    """Only allow redirects to local paths (prevents open-redirect)."""
+    if target and target.startswith("/") and not target.startswith("//"):
+        return target
+    return home_url()
+
+
+def csrf_token():
+    if "_csrf" not in session:
+        session["_csrf"] = secrets.token_hex(16)
+    return session["_csrf"]
+
+
+@app.context_processor
+def inject_helpers():
+    from markupsafe import Markup
+    return {
+        "csrf_input": lambda: Markup(
+            f'<input type="hidden" name="_csrf" value="{csrf_token()}">'
+        ),
+        "logged_in": bool(session.get("role")),
+        "is_admin": is_admin(),
+        "user_name": session.get("name", ""),
+    }
+
+
+@app.before_request
+def enforce_login():
+    if request.method == "POST":
+        sent = request.form.get("_csrf", "")
+        if not sent or not secrets.compare_digest(sent, session.get("_csrf", "")):
+            abort(400, "Invalid or missing CSRF token. Please reload the page and try again.")
+
+    endpoint = request.endpoint
+    if endpoint in PUBLIC_ENDPOINTS or endpoint is None:
+        return None
+
+    role = session.get("role")
+    if not role:
+        return redirect(url_for("login", next=request.full_path.rstrip("?")))
+
+    if role == "teacher":
+        # make sure the teacher account still exists (admin may have deleted it)
+        conn = get_db()
+        exists = conn.execute(
+            "SELECT 1 FROM teachers WHERE id=?", (session.get("teacher_id"),)
+        ).fetchone()
+        conn.close()
+        if not exists:
+            session.clear()
+            flash("Your account is no longer active.", "danger")
+            return redirect(url_for("login"))
+        if endpoint not in TEACHER_ENDPOINTS:
+            flash("Teacher accounts can only take attendance and view/download reports.", "danger")
+            return redirect(url_for("attendance_page"))
+    return None
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if session.get("role"):
+        return redirect(home_url())
+
+    next_url = request.values.get("next", "")
+    if request.method == "POST":
+        ip = request.remote_addr or "unknown"
+        fails, locked_until = _login_fails.get(ip, (0, 0))
+        if locked_until > time.time():
+            wait = int(locked_until - time.time()) // 60 + 1
+            flash(f"Too many failed attempts. Try again in about {wait} minute(s).", "danger")
+            return render_template("login.html", next=next_url, username=""), 429
+
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+
+        who = None  # (role, name, teacher_id)
+        ok_user = secrets.compare_digest(username.encode(), ADMIN_USERNAME.encode())
+        ok_pass = secrets.compare_digest(password.encode(), ADMIN_PASSWORD.encode())
+        if ok_user and ok_pass:
+            who = ("admin", "Admin", None)
+        else:
+            conn = get_db()
+            t = conn.execute(
+                "SELECT * FROM teachers WHERE username=?", (norm_name(username),)
+            ).fetchone()
+            conn.close()
+            if t and check_password_hash(t["password_hash"], password):
+                who = ("teacher", t["name"], t["id"])
+
+        if who:
+            _login_fails.pop(ip, None)
+            csrf = session.get("_csrf")
+            session.clear()
+            session["_csrf"] = csrf or secrets.token_hex(16)
+            session.permanent = True
+            session["role"], session["name"], session["teacher_id"] = who
+            return redirect(safe_next(next_url))
+
+        fails += 1
+        _login_fails[ip] = (fails, time.time() + LOCK_SECONDS if fails >= MAX_FAILS else 0)
+        flash("Incorrect username or password.", "danger")
+        return render_template("login.html", next=next_url, username=username), 401
+
+    return render_template("login.html", next=next_url, username="")
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    flash("You have been logged out.", "info")
+    return redirect(url_for("login"))
+
+
+# --------------------------------------------------------------------------
+# Teachers (admin only): add / reset password / delete
+# --------------------------------------------------------------------------
+@app.route("/teachers", methods=["GET", "POST"])
+def teachers():
+    conn = get_db()
+    if request.method == "POST":
+        name = " ".join(request.form.get("name", "").split())
+        password = request.form.get("password", "")
+        key = norm_name(name)
+        error = None
+        if not name or not password:
+            error = "Teacher name and password are required."
+        elif key == norm_name(ADMIN_USERNAME):
+            error = "That name is reserved. Choose a different name."
+        elif len(password) < MIN_PASSWORD_LEN:
+            error = f"Password must be at least {MIN_PASSWORD_LEN} characters."
+        if error:
+            flash(error, "danger")
+        else:
+            try:
+                # the (normalized) name doubles as the login name
+                conn.execute(
+                    "INSERT INTO teachers (name, username, password_hash) VALUES (?, ?, ?)",
+                    (name, key, generate_password_hash(password)),
+                )
+                conn.commit()
+                flash(f'Teacher "{name}" added. They log in with this name and the password.', "success")
+            except sqlite3.IntegrityError:
+                flash(f'A teacher named "{name}" already exists.', "danger")
+        conn.close()
+        return redirect(url_for("teachers"))
+
+    rows = conn.execute("SELECT * FROM teachers ORDER BY name").fetchall()
+    conn.close()
+    return render_template("teachers.html", teachers=rows)
+
+
+@app.route("/teachers/<int:teacher_id>/reset-password", methods=["POST"])
+def reset_teacher_password(teacher_id):
+    password = request.form.get("password", "")
+    if len(password) < MIN_PASSWORD_LEN:
+        flash(f"Password must be at least {MIN_PASSWORD_LEN} characters.", "danger")
+        return redirect(url_for("teachers"))
+    conn = get_db()
+    conn.execute(
+        "UPDATE teachers SET password_hash=? WHERE id=?",
+        (generate_password_hash(password), teacher_id),
+    )
+    conn.commit()
+    conn.close()
+    flash("Password updated.", "success")
+    return redirect(url_for("teachers"))
+
+
+@app.route("/teachers/<int:teacher_id>/delete", methods=["POST"])
+def delete_teacher(teacher_id):
+    conn = get_db()
+    conn.execute("DELETE FROM teachers WHERE id=?", (teacher_id,))
+    conn.commit()
+    conn.close()
+    flash("Teacher removed.", "info")
+    return redirect(url_for("teachers"))
 
 
 # --------------------------------------------------------------------------
@@ -381,6 +623,18 @@ def save_attendance():
 # --------------------------------------------------------------------------
 # Reports
 # --------------------------------------------------------------------------
+# Attendance % -> marks. Each row is (minimum percentage, marks).
+MARKS_SCALE = [(90, 10), (80, 9), (75, 8), (70, 7), (60, 6)]
+
+
+def attendance_marks(pct):
+    """90-100 -> 10, 80-89 -> 9, 75-79 -> 8, 70-74 -> 7, 60-69 -> 6, below 60 -> 0."""
+    for minimum, marks in MARKS_SCALE:
+        if pct >= minimum:
+            return marks
+    return 0
+
+
 @app.route("/reports")
 def reports():
     conn = get_db()
@@ -408,7 +662,7 @@ def reports():
         ).fetchall()
         for r in summary_rows:
             pct = round((r["present"] / r["total"]) * 100, 1) if r["total"] else 0.0
-            summary.append({**dict(r), "percentage": pct})
+            summary.append({**dict(r), "percentage": pct, "marks": attendance_marks(pct)})
     conn.close()
     return render_template(
         "reports.html", depts=depts, batches=batches, summary=summary,
@@ -453,6 +707,7 @@ def export_report():
                 "Roll": r["roll"], "Name": r["name"],
                 "Present": r["present"], "Absent": r["absent"],
                 "Total Marked Days": total, "Attendance %": pct,
+                "Marks": attendance_marks(pct),
             }
         )
     df = pd.DataFrame(data)
@@ -467,6 +722,13 @@ def export_report():
     )
 
 
+init_db()
+
 if __name__ == "__main__":
-    init_db()
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    # Debug mode and network exposure are OFF by default. Opt in with env vars:
+    #   FLASK_DEBUG=1  HOST=0.0.0.0  python app.py
+    app.run(
+        debug=os.environ.get("FLASK_DEBUG") == "1",
+        host=os.environ.get("HOST", "127.0.0.1"),
+        port=int(os.environ.get("PORT", 5000)),
+    )
