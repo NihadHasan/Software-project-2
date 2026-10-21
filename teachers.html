@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% block title %}Teachers — Attendance Management System{% endblock %}
+{% block content %}
+
+<h2 class="panel-title">Add Teacher</h2>
+<section class="panel form-panel">
+    <form method="post">
+        {{ csrf_input() }}
+        <div class="field">
+            <label for="name">Teacher name (used to log in) <span class="req">*</span></label>
+            <input id="name" type="text" name="name" required>
+        </div>
+        <div class="field">
+            <label for="password">Password <span class="req">*</span></label>
+            <input id="password" type="text" name="password" minlength="6" autocomplete="off" required>
+        </div>
+        <div class="field-actions">
+            <button type="submit" class="btn btn-ink">Add Teacher</button>
+        </div>
+    </form>
+</section>
+
+<h2 class="panel-title">Teachers</h2>
+<section class="panel">
+    {% if teachers %}
+    <table class="ledger-table">
+        <thead><tr><th>Name</th><th>New password</th><th></th></tr></thead>
+        <tbody>
+        {% for t in teachers %}
+        <tr>
+            <td>{{ t.name }}</td>
+            <td>
+                <form method="post" action="{{ url_for('reset_teacher_password', teacher_id=t.id) }}" class="inline-form">
+                    {{ csrf_input() }}
+                    <input type="text" name="password" placeholder="New password" minlength="6" autocomplete="off" required>
+                    <button type="submit" class="btn-mini">Change</button>
+                </form>
+            </td>
+            <td class="row-actions">
+                <form method="post" action="{{ url_for('delete_teacher', teacher_id=t.id) }}"
+                      onsubmit="return confirm('Remove this teacher?');" class="inline-form">
+                    {{ csrf_input() }}
+                    <button type="submit" class="link-danger">Delete</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="blank-note">No teachers yet. Add one above.</p>
+    {% endif %}
+</section>
+
+{% endblock %}
