@@ -5,8 +5,8 @@ A Flask + SQLite web app to manage student records (manual entry or Excel
 bulk upload), take daily attendance, and generate attendance reports
 (on-screen + Excel export).
 
-Students are grouped by Department + Batch (instead of a single "class"
-field) — attendance and reports are taken per Dept/Batch group.
+Students are grouped by Department + Session (instead of a single "class"
+field) — attendance and reports are taken per Dept/Session group.
 
 Run:
     pip install -r requirements.txt
@@ -86,7 +86,7 @@ def init_db():
             name TEXT NOT NULL,
             roll TEXT NOT NULL UNIQUE,
             dept TEXT NOT NULL,
-            batch TEXT NOT NULL,
+            session TEXT NOT NULL,
             phone TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -97,7 +97,7 @@ def init_db():
             date TEXT NOT NULL,
             status TEXT NOT NULL,
             dept TEXT NOT NULL,
-            batch TEXT NOT NULL,
+            session TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
             UNIQUE(student_id, date)
@@ -112,6 +112,11 @@ def init_db():
         );
         """
     )
+    # Migration: older databases used a "batch" column -> rename it to "session"
+    for table in ("students", "attendance"):
+        cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+        if "batch" in cols and "session" not in cols:
+            conn.execute(f"ALTER TABLE {table} RENAME COLUMN batch TO session")
     conn.commit()
     conn.close()
 
@@ -331,7 +336,7 @@ def delete_teacher(teacher_id):
 def dashboard():
     conn = get_db()
     total_students = conn.execute("SELECT COUNT(*) c FROM students").fetchone()["c"]
-    groups = conn.execute("SELECT DISTINCT dept, batch FROM students").fetchall()
+    groups = conn.execute("SELECT DISTINCT dept, session FROM students").fetchall()
     today = date.today().isoformat()
 
     today_present = conn.execute(
@@ -343,7 +348,7 @@ def dashboard():
 
     recent = conn.execute(
         """
-        SELECT a.date, a.status, a.dept, a.batch, s.name, s.roll
+        SELECT a.date, a.status, a.dept, a.session, s.name, s.roll
         FROM attendance a JOIN students s ON a.student_id = s.id
         ORDER BY a.created_at DESC LIMIT 8
         """
@@ -367,7 +372,7 @@ def dashboard():
 def students():
     conn = get_db()
     dept_filter = request.args.get("dept", "")
-    batch_filter = request.args.get("batch", "")
+    session_filter = request.args.get("session", "")
     search = request.args.get("search", "")
 
     query = "SELECT * FROM students WHERE 1=1"
@@ -375,21 +380,21 @@ def students():
     if dept_filter:
         query += " AND dept=?"
         params.append(dept_filter)
-    if batch_filter:
-        query += " AND batch=?"
-        params.append(batch_filter)
+    if session_filter:
+        query += " AND session=?"
+        params.append(session_filter)
     if search:
         query += " AND (name LIKE ? OR roll LIKE ?)"
         params.extend([f"%{search}%", f"%{search}%"])
-    query += " ORDER BY dept, batch, roll"
+    query += " ORDER BY dept, session, roll"
 
     rows = conn.execute(query, params).fetchall()
     depts = conn.execute("SELECT DISTINCT dept FROM students ORDER BY dept").fetchall()
-    batches = conn.execute("SELECT DISTINCT batch FROM students ORDER BY batch").fetchall()
+    session_list = conn.execute("SELECT DISTINCT session FROM students ORDER BY session").fetchall()
     conn.close()
     return render_template(
-        "students.html", students=rows, depts=depts, batches=batches,
-        dept_filter=dept_filter, batch_filter=batch_filter, search=search
+        "students.html", students=rows, depts=depts, session_list=session_list,
+        dept_filter=dept_filter, session_filter=session_filter, search=search
     )
 
 
@@ -399,18 +404,18 @@ def add_student():
         name = request.form.get("name", "").strip()
         roll = request.form.get("roll", "").strip()
         dept = request.form.get("dept", "").strip()
-        batch = request.form.get("batch", "").strip()
+        sess = request.form.get("session", "").strip()
         phone = request.form.get("phone", "").strip()
 
-        if not name or not roll or not dept or not batch:
-            flash("Name, Roll, Dept and Batch are required.", "danger")
+        if not name or not roll or not dept or not sess:
+            flash("Name, Roll, Dept and Session are required.", "danger")
             return redirect(url_for("add_student"))
 
         conn = get_db()
         try:
             conn.execute(
-                "INSERT INTO students (name, roll, dept, batch, phone) VALUES (?, ?, ?, ?, ?)",
-                (name, roll, dept, batch, phone),
+                "INSERT INTO students (name, roll, dept, session, phone) VALUES (?, ?, ?, ?, ?)",
+                (name, roll, dept, sess, phone),
             )
             conn.commit()
             flash(f"{name} was added successfully.", "success")
@@ -430,12 +435,12 @@ def edit_student(student_id):
         name = request.form.get("name", "").strip()
         roll = request.form.get("roll", "").strip()
         dept = request.form.get("dept", "").strip()
-        batch = request.form.get("batch", "").strip()
+        sess = request.form.get("session", "").strip()
         phone = request.form.get("phone", "").strip()
         try:
             conn.execute(
-                "UPDATE students SET name=?, roll=?, dept=?, batch=?, phone=? WHERE id=?",
-                (name, roll, dept, batch, phone, student_id),
+                "UPDATE students SET name=?, roll=?, dept=?, session=?, phone=? WHERE id=?",
+                (name, roll, dept, sess, phone, student_id),
             )
             conn.commit()
             flash("Student details updated.", "success")
@@ -482,7 +487,7 @@ def upload_excel():
         file.save(filepath)
 
         try:
-            df = pd.read_excel(filepath)
+            df = pd.read_excel(filepath, dtype=str)
         except Exception as e:
             flash(f"There was a problem reading the file: {e}", "danger")
             return redirect(url_for("upload_excel"))
@@ -496,14 +501,14 @@ def upload_excel():
                 col_map[c] = "roll"
             elif c in ("dept", "department"):
                 col_map[c] = "dept"
-            elif c in ("batch", "session", "year"):
-                col_map[c] = "batch"
+            elif c in ("session", "batch", "year"):
+                col_map[c] = "session"
             elif c in ("phone", "mobile", "contact"):
                 col_map[c] = "phone"
         df = df.rename(columns=col_map)
 
-        if not {"name", "roll", "dept", "batch"}.issubset(df.columns):
-            flash("The Excel file must contain Name, Roll, Dept and Batch columns.", "danger")
+        if not {"name", "roll", "dept", "session"}.issubset(df.columns):
+            flash("The Excel file must contain Name, Roll, Dept and Session columns.", "danger")
             return redirect(url_for("upload_excel"))
 
         conn = get_db()
@@ -512,19 +517,19 @@ def upload_excel():
             name = str(row.get("name", "")).strip()
             roll = str(row.get("roll", "")).strip()
             dept = str(row.get("dept", "")).strip()
-            batch = str(row.get("batch", "")).strip()
+            sess = str(row.get("session", "")).strip()
             phone = (
                 str(row.get("phone", "")).strip()
                 if "phone" in df.columns and pd.notna(row.get("phone")) else ""
             )
 
-            if not name or not roll or not dept or not batch or name == "nan" or roll == "nan":
+            if not name or not roll or not dept or not sess or name == "nan" or roll == "nan":
                 skipped += 1
                 continue
             try:
                 conn.execute(
-                    "INSERT INTO students (name, roll, dept, batch, phone) VALUES (?, ?, ?, ?, ?)",
-                    (name, roll, dept, batch, phone),
+                    "INSERT INTO students (name, roll, dept, session, phone) VALUES (?, ?, ?, ?, ?)",
+                    (name, roll, dept, sess, phone),
                 )
                 added += 1
             except sqlite3.IntegrityError:
@@ -542,9 +547,9 @@ def sample_excel():
     df = pd.DataFrame(
         {
             "Name": ["Rahim Uddin", "Karim Hossain", "Fatema Begum"],
-            "Roll": ["101", "102", "103"],
+            "Roll": ["230139", "230140", "230141"],
             "Dept": ["CSE", "CSE", "EEE"],
-            "Batch": ["51", "51", "52"],
+            "Session": ["2022-23", "2022-23", "2023-24"],
             "Phone": ["01700000001", "01700000002", "01700000003"],
         }
     )
@@ -565,27 +570,27 @@ def sample_excel():
 def attendance_page():
     conn = get_db()
     depts = conn.execute("SELECT DISTINCT dept FROM students ORDER BY dept").fetchall()
-    batches = conn.execute("SELECT DISTINCT batch FROM students ORDER BY batch").fetchall()
+    session_list = conn.execute("SELECT DISTINCT session FROM students ORDER BY session").fetchall()
     selected_dept = request.args.get("dept", "")
-    selected_batch = request.args.get("batch", "")
+    selected_session = request.args.get("session", "")
     selected_date = request.args.get("date", date.today().isoformat())
 
     students_list = []
     existing = {}
-    if selected_dept and selected_batch:
+    if selected_dept and selected_session:
         students_list = conn.execute(
-            "SELECT * FROM students WHERE dept=? AND batch=? ORDER BY roll",
-            (selected_dept, selected_batch),
+            "SELECT * FROM students WHERE dept=? AND session=? ORDER BY roll",
+            (selected_dept, selected_session),
         ).fetchall()
         rows = conn.execute(
-            "SELECT student_id, status FROM attendance WHERE dept=? AND batch=? AND date=?",
-            (selected_dept, selected_batch, selected_date),
+            "SELECT student_id, status FROM attendance WHERE dept=? AND session=? AND date=?",
+            (selected_dept, selected_session, selected_date),
         ).fetchall()
         existing = {r["student_id"]: r["status"] for r in rows}
     conn.close()
     return render_template(
-        "attendance.html", depts=depts, batches=batches, students=students_list,
-        selected_dept=selected_dept, selected_batch=selected_batch,
+        "attendance.html", depts=depts, session_list=session_list, students=students_list,
+        selected_dept=selected_dept, selected_session=selected_session,
         selected_date=selected_date, existing=existing,
     )
 
@@ -593,11 +598,11 @@ def attendance_page():
 @app.route("/attendance/save", methods=["POST"])
 def save_attendance():
     selected_dept = request.form.get("dept")
-    selected_batch = request.form.get("batch")
+    selected_session = request.form.get("session")
     selected_date = request.form.get("date")
     conn = get_db()
     student_ids = conn.execute(
-        "SELECT id FROM students WHERE dept=? AND batch=?", (selected_dept, selected_batch)
+        "SELECT id FROM students WHERE dept=? AND session=?", (selected_dept, selected_session)
     ).fetchall()
     count = 0
     for s in student_ids:
@@ -605,18 +610,18 @@ def save_attendance():
         status = request.form.get(f"status_{sid}", "Present")
         conn.execute(
             """
-            INSERT INTO attendance (student_id, date, status, dept, batch)
+            INSERT INTO attendance (student_id, date, status, dept, session)
             VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(student_id, date) DO UPDATE SET status=excluded.status
             """,
-            (sid, selected_date, status, selected_dept, selected_batch),
+            (sid, selected_date, status, selected_dept, selected_session),
         )
         count += 1
     conn.commit()
     conn.close()
     flash(f"Attendance for {selected_date} has been saved ({count} student(s)).", "success")
     return redirect(url_for(
-        "attendance_page", **{"dept": selected_dept, "batch": selected_batch, "date": selected_date}
+        "attendance_page", **{"dept": selected_dept, "session": selected_session, "date": selected_date}
     ))
 
 
@@ -639,14 +644,14 @@ def attendance_marks(pct):
 def reports():
     conn = get_db()
     depts = conn.execute("SELECT DISTINCT dept FROM students ORDER BY dept").fetchall()
-    batches = conn.execute("SELECT DISTINCT batch FROM students ORDER BY batch").fetchall()
+    session_list = conn.execute("SELECT DISTINCT session FROM students ORDER BY session").fetchall()
     dept_filter = request.args.get("dept", "")
-    batch_filter = request.args.get("batch", "")
+    session_filter = request.args.get("session", "")
     from_date = request.args.get("from_date", "")
     to_date = request.args.get("to_date", "")
 
     summary = []
-    if dept_filter and batch_filter and from_date and to_date:
+    if dept_filter and session_filter and from_date and to_date:
         summary_rows = conn.execute(
             """
             SELECT s.id, s.roll, s.name,
@@ -655,18 +660,18 @@ def reports():
                 COUNT(a.id) as total
             FROM students s
             LEFT JOIN attendance a ON a.student_id = s.id AND a.date BETWEEN ? AND ?
-            WHERE s.dept=? AND s.batch=?
+            WHERE s.dept=? AND s.session=?
             GROUP BY s.id ORDER BY s.roll
             """,
-            (from_date, to_date, dept_filter, batch_filter),
+            (from_date, to_date, dept_filter, session_filter),
         ).fetchall()
         for r in summary_rows:
             pct = round((r["present"] / r["total"]) * 100, 1) if r["total"] else 0.0
             summary.append({**dict(r), "percentage": pct, "marks": attendance_marks(pct)})
     conn.close()
     return render_template(
-        "reports.html", depts=depts, batches=batches, summary=summary,
-        dept_filter=dept_filter, batch_filter=batch_filter,
+        "reports.html", depts=depts, session_list=session_list, summary=summary,
+        dept_filter=dept_filter, session_filter=session_filter,
         from_date=from_date, to_date=to_date,
     )
 
@@ -674,12 +679,12 @@ def reports():
 @app.route("/reports/export")
 def export_report():
     dept_filter = request.args.get("dept", "")
-    batch_filter = request.args.get("batch", "")
+    session_filter = request.args.get("session", "")
     from_date = request.args.get("from_date", "")
     to_date = request.args.get("to_date", "")
 
-    if not (dept_filter and batch_filter and from_date and to_date):
-        flash("Please select a department, batch and date range.", "danger")
+    if not (dept_filter and session_filter and from_date and to_date):
+        flash("Please select a department, session and date range.", "danger")
         return redirect(url_for("reports"))
 
     conn = get_db()
@@ -691,10 +696,10 @@ def export_report():
             COUNT(a.id) as total_marked
         FROM students s
         LEFT JOIN attendance a ON a.student_id = s.id AND a.date BETWEEN ? AND ?
-        WHERE s.dept=? AND s.batch=?
+        WHERE s.dept=? AND s.session=?
         GROUP BY s.id ORDER BY s.roll
         """,
-        (from_date, to_date, dept_filter, batch_filter),
+        (from_date, to_date, dept_filter, session_filter),
     ).fetchall()
     conn.close()
 
@@ -715,7 +720,7 @@ def export_report():
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="Report")
     output.seek(0)
-    fname = f"attendance_report_{dept_filter}_{batch_filter}_{from_date}_to_{to_date}.xlsx"
+    fname = f"attendance_report_{dept_filter}_{session_filter}_{from_date}_to_{to_date}.xlsx"
     return send_file(
         output, as_attachment=True, download_name=fname,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -724,11 +729,29 @@ def export_report():
 
 init_db()
 
+def get_lan_ip():
+    """Best-effort guess of this computer's address on the local network."""
+    import socket
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))  # no data is sent; just picks the active interface
+            return sock.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+
+
 if __name__ == "__main__":
-    # Debug mode and network exposure are OFF by default. Opt in with env vars:
-    #   FLASK_DEBUG=1  HOST=0.0.0.0  python app.py
+    # The app is reachable from other devices on the same network (HOST=0.0.0.0).
+    # Debug mode stays OFF by default (turn on only on your own PC: FLASK_DEBUG=1).
+    # To limit access to this computer only:  HOST=127.0.0.1 python app.py
+    host = os.environ.get("HOST", "0.0.0.0")
+    port = int(os.environ.get("PORT", 5000))
+    if host == "0.0.0.0":
+        print("\n  Open on this computer : http://127.0.0.1:%d" % port)
+        print("  Open from other devices (same Wi-Fi/network): http://%s:%d\n" % (get_lan_ip(), port))
     app.run(
         debug=os.environ.get("FLASK_DEBUG") == "1",
-        host=os.environ.get("HOST", "127.0.0.1"),
-        port=int(os.environ.get("PORT", 5000)),
+        host=host,
+        port=port,
+        threaded=True,
     )
