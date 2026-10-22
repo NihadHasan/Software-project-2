@@ -12,27 +12,27 @@
             <option value="{{ d.dept }}" {{ 'selected' if d.dept==dept_filter }}>{{ d.dept }}</option>
             {% endfor %}
         </select>
-        <select name="batch" required>
-            <option value="">Select Batch</option>
-            {% for b in batches %}
-            <option value="{{ b.batch }}" {{ 'selected' if b.batch==batch_filter }}>{{ b.batch }}</option>
+        <select name="session" required>
+            <option value="">Select Session</option>
+            {% for b in session_list %}
+            <option value="{{ b.session }}" {{ 'selected' if b.session==session_filter }}>{{ b.session }}</option>
             {% endfor %}
         </select>
         <input type="date" name="from_date" value="{{ from_date }}" required>
         <span class="filter-sep">to</span>
         <input type="date" name="to_date" value="{{ to_date }}" required>
         <button type="submit" class="btn btn-line">Generate</button>
-        {% if dept_filter and batch_filter and from_date and to_date %}
-        <a href="{{ url_for('export_report', **{'dept': dept_filter, 'batch': batch_filter, 'from_date': from_date, 'to_date': to_date}) }}" class="btn btn-ink">Download Excel</a>
+        {% if dept_filter and session_filter and from_date and to_date %}
+        <a href="{{ url_for('export_report', **{'dept': dept_filter, 'session': session_filter, 'from_date': from_date, 'to_date': to_date}) }}" class="btn btn-ink">Download Excel</a>
         {% endif %}
     </form>
 </section>
 
 {% if summary %}
 <section class="panel">
-    <h3 class="sub-title">Summary — {{ dept_filter }} &middot; Batch {{ batch_filter }} ({{ from_date }} to {{ to_date }})</h3>
+    <h3 class="sub-title">Summary — {{ dept_filter }} &middot; Session {{ session_filter }} ({{ from_date }} to {{ to_date }})</h3>
     <table class="ledger-table">
-        <thead><tr><th>Roll</th><th>Name</th><th>Present</th><th>Absent</th><th>Late</th><th>Total Days</th><th>Attendance Rate</th></tr></thead>
+        <thead><tr><th>Roll</th><th>Name</th><th>Present</th><th>Absent</th><th>Total Days</th><th>Attendance Rate</th><th>Marks</th></tr></thead>
         <tbody>
         {% for r in summary %}
         <tr>
@@ -40,18 +40,19 @@
             <td>{{ r.name }}</td>
             <td>{{ r.present }}</td>
             <td>{{ r.absent }}</td>
-            <td>{{ r.late }}</td>
             <td>{{ r.total }}</td>
             <td class="pct-cell">
                 <div class="pct-track"><div class="pct-fill" style="width: {{ r.percentage }}%"></div></div>
                 <span class="pct-text">{{ r.percentage }}%</span>
             </td>
+            <td><strong>{{ r.marks }}</strong> <span class="blank-note">/ 10</span></td>
         </tr>
         {% endfor %}
         </tbody>
     </table>
+    <p class="blank-note">Marks: 90&ndash;100% = 10, 80&ndash;89% = 9, 75&ndash;79% = 8, 70&ndash;74% = 7, 60&ndash;69% = 6, below 60% = 0.</p>
 </section>
-{% elif dept_filter and batch_filter %}
+{% elif dept_filter and session_filter %}
 <p class="blank-note">No attendance data found for this period.</p>
 {% endif %}
 

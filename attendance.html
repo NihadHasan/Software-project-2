@@ -12,10 +12,10 @@
             <option value="{{ d.dept }}" {{ 'selected' if d.dept==selected_dept }}>{{ d.dept }}</option>
             {% endfor %}
         </select>
-        <select name="batch" required>
-            <option value="">Select Batch</option>
-            {% for b in batches %}
-            <option value="{{ b.batch }}" {{ 'selected' if b.batch==selected_batch }}>{{ b.batch }}</option>
+        <select name="session" required>
+            <option value="">Select Session</option>
+            {% for b in session_list %}
+            <option value="{{ b.session }}" {{ 'selected' if b.session==selected_session }}>{{ b.session }}</option>
             {% endfor %}
         </select>
         <input type="date" name="date" value="{{ selected_date }}">
@@ -23,15 +23,16 @@
     </form>
 </section>
 
-{% if selected_dept and selected_batch %}
+{% if selected_dept and selected_session %}
 <section class="panel">
     <form method="post" action="{{ url_for('save_attendance') }}">
+    {{ csrf_input() }}
         <input type="hidden" name="dept" value="{{ selected_dept }}">
-        <input type="hidden" name="batch" value="{{ selected_batch }}">
+        <input type="hidden" name="session" value="{{ selected_session }}">
         <input type="hidden" name="date" value="{{ selected_date }}">
 
         <div class="panel-header">
-            <h3 class="sub-title">{{ selected_dept }} &middot; Batch {{ selected_batch }} &middot; {{ selected_date }}</h3>
+            <h3 class="sub-title">{{ selected_dept }} &middot; Session {{ selected_session }} &middot; {{ selected_date }}</h3>
             <div class="mini-actions">
                 <button type="button" class="btn btn-mini" data-mark="Present">Mark All Present</button>
                 <button type="button" class="btn btn-mini" data-mark="Absent">Mark All Absent</button>
@@ -39,16 +40,21 @@
         </div>
 
         {% if students %}
+        <p class="hint-note">Tap a student's button to toggle between Present and Absent.</p>
         <table class="ledger-table attendance-table">
-            <thead><tr><th>Roll</th><th>Name</th><th>Present</th><th>Absent</th><th>Late</th></tr></thead>
+            <thead><tr><th>Roll</th><th>Name</th><th>Attendance</th></tr></thead>
             <tbody>
             {% for s in students %}
+            {% set current = existing.get(s.id, 'Present') %}
             <tr>
                 <td>{{ s.roll }}</td>
                 <td>{{ s.name }}</td>
-                <td class="radio-cell"><input type="radio" name="status_{{ s.id }}" value="Present" class="mark-present" {{ 'checked' if existing.get(s.id, 'Present')=='Present' }}></td>
-                <td class="radio-cell"><input type="radio" name="status_{{ s.id }}" value="Absent" class="mark-absent" {{ 'checked' if existing.get(s.id)=='Absent' }}></td>
-                <td class="radio-cell"><input type="radio" name="status_{{ s.id }}" value="Late" class="mark-late" {{ 'checked' if existing.get(s.id)=='Late' }}></td>
+                <td class="toggle-cell">
+                    <input type="hidden" name="status_{{ s.id }}" value="{{ current }}" class="status-input">
+                    <button type="button"
+                            class="toggle-btn {{ 'is-present' if current=='Present' else 'is-absent' }}"
+                            data-student="{{ s.id }}">{{ current }}</button>
+                </td>
             </tr>
             {% endfor %}
             </tbody>
@@ -57,7 +63,7 @@
             <button type="submit" class="btn btn-ink">Save Attendance</button>
         </div>
         {% else %}
-        <p class="blank-note">There are no students in this Dept/Batch.</p>
+        <p class="blank-note">There are no students in this Dept/Session.</p>
         {% endif %}
     </form>
 </section>

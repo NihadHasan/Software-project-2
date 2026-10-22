@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Attendance Management System{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+<div class="register-wrap">
+    <header class="register-head">
+        <div class="register-head-inner">
+            <div class="register-mark">AMS</div>
+            <div class="register-title">
+                <h1>Attendance Management System</h1>
+                <p>Manage students, take attendance, and generate reports</p>
+            </div>
+        </div>
+        {% if logged_in %}
+        <nav class="tabs">
+            {% if is_admin %}
+            <a href="{{ url_for('dashboard') }}" class="tab {{ 'is-active' if request.endpoint=='dashboard' }}">Dashboard</a>
+            <a href="{{ url_for('students') }}" class="tab {{ 'is-active' if request.endpoint in ['students','add_student','edit_student'] }}">Students</a>
+            <a href="{{ url_for('upload_excel') }}" class="tab {{ 'is-active' if request.endpoint=='upload_excel' }}">Excel Import</a>
+            {% endif %}
+            <a href="{{ url_for('attendance_page') }}" class="tab {{ 'is-active' if request.endpoint=='attendance_page' }}">Take Attendance</a>
+            <a href="{{ url_for('reports') }}" class="tab {{ 'is-active' if request.endpoint=='reports' }}">Reports</a>
+            {% if is_admin %}
+            <a href="{{ url_for('teachers') }}" class="tab {{ 'is-active' if request.endpoint=='teachers' }}">Teachers</a>
+            {% endif %}
+            <span class="tab-spacer"></span>
+            <span class="tab user-chip">{{ user_name }}{% if not is_admin %} &middot; teacher{% endif %}</span>
+            <form method="post" action="{{ url_for('logout') }}" class="inline-form logout-form">
+                {{ csrf_input() }}
+                <button type="submit" class="tab tab-button">Log out</button>
+            </form>
+        </nav>
+        {% endif %}
+    </header>
+
+    <main class="register-body">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="notice notice-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="register-foot">
+        <span>Runs locally &middot; all data is stored on your own device</span>
+    </footer>
+</div>
+</body>
+</html>
